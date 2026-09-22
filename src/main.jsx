@@ -1,0 +1,80 @@
+import React,{useEffect,useMemo,useRef,useState} from "react";
+import {createRoot} from "react-dom/client";
+import {TAXONOMY,TAXONOMY_COUNTS} from "./taxonomy";
+import {createStudio,generateAsset,exportGLTF,exportPLY,downloadBlob,createB3DBridge} from "./scene";
+import "./styles.css";
+
+function parseMarkdown(md){
+  const out=[]; let cat=null,sub=null;
+  for(const line of md.split(/\r?\n/)){
+    const cm=line.match(/^# (MONOCOQUE|HUMANITÉ 2126|BIOMIMICRY|ARCHITECTURAL) \/\/ (\d+) — (.+)$/);
+    if(cm){cat={id:cm[1],name:cm[1],code:cm[2],description:"",subcategories:[]};out.push(cat);sub=null;continue}
+    if(cat&&line.startsWith("*")&&line.endsWith("*")&&!cat.description)cat.description=line.slice(1,-1);
+    const sm=line.match(/^### ([\d.]+) — (.+)$/);
+    if(sm&&cat){sub={id:sm[1],name:sm[2],items:[]};cat.subcategories.push(sub);continue}
+    if(sub&&line.startsWith("- "))sub.items.push(line.slice(2).trim());
+  }
+  return out;
+}
+function slug(s){return s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")}
+function App(){
+  const host=useRef(null),studio=useRef(null);
+  const [category,setCategory]=useState(TAXONOMY[0]);
+  const [sub,setSub]=useState(TAXONOMY[0].subcategories[0]);
+  const [asset,setAsset]=useState(TAXONOMY[0].subcategories[0].items[0]);
+  const [query,setQuery]=useState("");
+  const [scale,setScale]=useState(1);
+  const [tab,setTab]=useState("generator");
+  const [custom,setCustom]=useState("");
+  const [status,setStatus]=useState("SYSTEM NOMINAL");
+  const [catalog,setCatalog]=useState(TAXONOMY);
+  const [generated,setGenerated]=useState([]);
+  useEffect(()=>{studio.current=createStudio(host.current);return()=>studio.current?.destroy()},[]);
+  useEffect(()=>{const g=generateAsset({category:category.name,subcategory:sub.name,asset:custom||asset,scale});studio.current?.setCurrent(g)},[category,sub,asset,custom,scale]);
+  const active=useMemo(()=>catalog.find(c=>c.name===category.name)||category,[catalog,category]);
+  const filteredSubs=useMemo(()=>active.subcategories.filter(s=>s.name.toLowerCase().includes(query.toLowerCase())||s.items.some(i=>i.toLowerCase().includes(query.toLowerCase()))),[active,query]);
+  const selectCategory=c=>{setCategory(c);setSub(c.subcategories[0]);setAsset(c.subcategories[0].items[0]);setCustom("")};
+  const generate=()=>{const name=custom||asset;setGenerated(g=>[{name,category:category.name,subcategory:sub.name,time:new Date().toLocaleTimeString(),id:crypto.randomUUID()},...g].slice(0,12));setStatus("ASSET GENERATED")};
+  const exportAsset=async(type)=>{const obj=studio.current?.getCurrent();if(!obj)return;const base=slug(custom||asset).slice(0,48)||"beyond-2126-asset";setStatus("EXPORTING "+type.toUpperCase());if(type==="glb"){downloadBlob(await exportGLTF(obj,true),base+".glb","model/gltf-binary")}if(type==="gltf"){downloadBlob(await exportGLTF(obj,false),base+".gltf","model/gltf+json")}if(type==="ply"){downloadBlob(exportPLY(obj),base+".ply","application/octet-stream")}if(type==="b3d"){downloadBlob(createB3DBridge({category:category.name,subcategory:sub.name,asset:custom||asset,scale}),base+"-b3d-bridge.py","text/x-python")}setStatus(type==="b3d"?"B3D BRIDGE READY":"EXPORT COMPLETE")};
+  const importTaxonomy=e=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{const parsed=parseMarkdown(String(reader.result));if(parsed.length===4){setCatalog(parsed);const first=parsed[0];setCategory(first);setSub(first.subcategories[0]);setAsset(first.subcategories[0].items[0]);setStatus("FULL TAXONOMY LOADED");}else setStatus("TAXONOMY FORMAT NOT RECOGNIZED")};reader.readAsText(file)};
+  const embed=()=>navigator.clipboard?.writeText('<iframe src="'+window.location.origin+'" width="100%" height="720" style="border:0"></iframe>')&&setStatus("EMBED SNIPPET COPIED");
+  return <div className="app">
+    <header className="topbar">
+      <div className="brand"><div className="mark">G</div><div><strong>GLORIFIED</strong><span>BEYOND 2126 // PROCEDURAL DESIGN SYSTEM</span></div></div>
+      <div className="top-actions"><span className="system"><i/> {status}</span><button onClick={embed}>EMBED</button><label className="import">IMPORT TAXONOMY<input type="file" accept=".md,.txt" onChange={importTaxonomy}/></label></div>
+    </header>
+    <nav className="tabs"><button className={tab==="generator"?"active":""} onClick={()=>setTab("generator")}>GÉNÉRATEUR</button><button className={tab==="library"?"active":""} onClick={()=>setTab("library")}>MÉDIATHÈQUE</button><button className={tab==="grammar"?"active":""} onClick={()=>setTab("grammar")}>DESIGN GRAMMAR</button></nav>
+    {tab==="grammar"&&<section className="grammar"><div><span className="eyebrow">VISUAL DNA</span><h1>FLUID MINIMALISM</h1><p>Monocoque · continuité · biomimicry · lévitation · noyau énergétique · interfaces discrètes.</p></div><div className="grammar-grid"><div><b>MATIÈRES</b><span>Blanc perle / titane / verre fumé</span></div><div><b>ACCENTS</b><span>#2563EB / ultraviolet / #059669</span></div><div><b>GÉOMÉTRIE</b><span>Courbes S, tores, capsules, surfaces lisses</span></div><div><b>INTERFACE</b><span>Plus Jakarta Sans + JetBrains Mono</span></div></div></section>}
+    {tab!=="grammar"&&<main className="workspace">
+      <aside className="left">
+        <div className="panel-title"><span>TAXONOMIE</span><em>{catalog.reduce((n,c)=>n+c.subcategories.length,0)} SOUS-CAT.</em></div>
+        <div className="category-tabs">{catalog.map(c=><button key={c.id} className={c.name===category.name?"selected":""} onClick={()=>selectCategory(c)}><span>{c.code}</span>{c.name}</button>)}</div>
+        <input className="search" placeholder="RECHERCHER UN ASSET..." value={query} onChange={e=>setQuery(e.target.value)}/>
+        <div className="sub-list">{filteredSubs.map(s=><button key={s.id} className={s.id===sub.id?"chosen":""} onClick={()=>{setSub(s);setAsset(s.items[0]);setCustom("")}}><span>{s.id}</span>{s.name}<small>{s.items.length} groupes</small></button>)}</div>
+      </aside>
+      <section className="center">
+        <div className="viewport-head"><span>VIEWPORT // WEBGL</span><span>NEUTRAL STUDIO · PBR · BLOOM</span></div>
+        <div ref={host} className="viewport"/>
+        <div className="viewport-caption"><span>{category.name} / {sub.name}</span><b>{custom||asset}</b></div>
+      </section>
+      <aside className="right">
+        <div className="panel-title"><span>GENERATOR</span><em>LIVE</em></div>
+        <div className="spec"><label>CATÉGORIE</label><strong>{category.name}</strong></div>
+        <div className="spec"><label>SOUS-CATÉGORIE</label><strong>{sub.name}</strong></div>
+        <label className="field-label">ASSET SOURCE</label>
+        <select value={asset} onChange={e=>{setAsset(e.target.value);setCustom("")}}>{sub.items.map((x,i)=><option key={i}>{x}</option>)}</select>
+        <label className="field-label">OU GÉNÉRER UN OBJET LIBRE</label>
+        <input className="text-input" placeholder="ex. gravity bike 2126" value={custom} onChange={e=>setCustom(e.target.value)}/>
+        <div className="slider"><div><span>ÉCHELLE</span><b>{scale.toFixed(2)}×</b></div><input type="range" min=".65" max="1.45" step=".01" value={scale} onChange={e=>setScale(+e.target.value)}/></div>
+        <button className="generate" onClick={generate}>GÉNÉRER LE MODÈLE 3D <span>↗</span></button>
+        <div className="export-title">EXPORT // STUDIO</div>
+        <div className="export-grid"><button onClick={()=>exportAsset("glb")}>.GLB</button><button onClick={()=>exportAsset("gltf")}>.GLTF</button><button onClick={()=>exportAsset("ply")}>.PLY</button><button onClick={()=>exportAsset("b3d")}>.B3D*</button></div>
+        <small className="note">* B3D fournit un bridge Python pour Blender + exporteur B3D installé.</small>
+        <div className="rules"><b>ACTIVE RULES</b><span>01 / NO VISIBLE SCREWS</span><span>02 / ORGANIC HARD-SURFACE</span><span>03 / MAGNETIC / NEON ACCENTS</span><span>04 / CLINICAL LIGHT</span></div>
+      </aside>
+    </main>}
+    {tab==="library"&&<section className="library"><div className="library-head"><div><span className="eyebrow">MÉDIATHÈQUE</span><h1>GENERATED ASSETS</h1><p>Galerie locale des modèles créés dans la session.</p></div><div className="count">{generated.length.toString().padStart(2,"0")} / SESSION</div></div><div className="cards">{generated.length?generated.map(x=><article key={x.id} onClick={()=>{setTab("generator");setCustom(x.name)}}><div className="mini-orb">2126</div><span>{x.category}</span><b>{x.name}</b><small>{x.subcategory} · {x.time}</small></article>):<div className="empty">Aucun asset généré. Lance le générateur puis reviens ici.</div>}</div></section>}
+    <footer><span>GLORIFIED // BEYOND 2126</span><span>4 CATEGORIES · {TAXONOMY_COUNTS.subcategories} SUBCATEGORIES · PROCEDURAL WEBGL</span><span>NO INTEGRATION CREDITS</span></footer>
+  </div>
+}
+createRoot(document.getElementById("root")).render(<App/>);
