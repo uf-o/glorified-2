@@ -20,11 +20,12 @@ export function createStudio(container){
   const floor=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.MeshStandardMaterial({color:0xffffff,roughness:.92})); floor.rotation.x=-Math.PI/2; floor.position.y=-1.65; scene.add(floor);
   const grid=new THREE.GridHelper(20,40,0xd7dee8,0xe9edf3); grid.position.y=-1.64; scene.add(grid);
   const composer=new EffectComposer(renderer); composer.addPass(new RenderPass(scene,camera)); composer.addPass(new UnrealBloomPass(new THREE.Vector2(1,1),.65,.65,.82));
-  let current=null; const resize=()=>{const w=container.clientWidth||800,h=container.clientHeight||600;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);composer.setSize(w,h)}; const ro=new ResizeObserver(resize); ro.observe(container); resize();
+  let current=null; let wireframeEnabled=false; const resize=()=>{const w=container.clientWidth||800,h=container.clientHeight||600;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);composer.setSize(w,h)}; const ro=new ResizeObserver(resize); ro.observe(container); resize();
   let raf; const tick=()=>{raf=requestAnimationFrame(tick);controls.update();composer.render()}; tick();
   const frameCurrent=()=>{if(!current)return;const box=new THREE.Box3().setFromObject(current),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());const radius=Math.max(size.x,size.y,size.z)*.5;const distance=Math.max(3.5,radius/Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))*1.25);const dir=new THREE.Vector3(1,.72,1).normalize();camera.position.copy(center).add(dir.multiplyScalar(distance));camera.near=Math.max(.01,distance/100);camera.far=Math.max(200,distance*20);camera.updateProjectionMatrix();controls.target.copy(center);controls.update()};
-  const resetView=()=>{camera.position.set(6,4.5,7);camera.near=.01;camera.far=200;camera.updateProjectionMatrix();controls.target.set(0,0,0);controls.update()};\n  const setWireframe=(enabled)=>{if(!current)return;current.traverse(o=>{if(o.isMesh&&o.material){const materials=Array.isArray(o.material)?o.material:[o.material];materials.forEach(m=>{if("wireframe" in m)m.wireframe=enabled;m.needsUpdate=true})}})};
-  return {scene,camera,renderer,controls,setCurrent(g){if(current)scene.remove(current);current=g;scene.add(g);frameCurrent()},getCurrent:()=>current,frameCurrent,resetView,setWireframe,destroy(){cancelAnimationFrame(raf);ro.disconnect();renderer.dispose()}};
+  const resetView=()=>{camera.position.set(6,4.5,7);camera.near=.01;camera.far=200;camera.updateProjectionMatrix();controls.target.set(0,0,0);controls.update()};
+  const setWireframe=(enabled)=>{wireframeEnabled=enabled;if(!current)return;current.traverse(o=>{if(o.isMesh&&o.material){const materials=Array.isArray(o.material)?o.material:[o.material];materials.forEach(m=>{if("wireframe" in m)m.wireframe=enabled;m.needsUpdate=true})}})};
+  return {scene,camera,renderer,controls,setCurrent(g){if(current)scene.remove(current);current=g;scene.add(g);setWireframe(wireframeEnabled);frameCurrent()},getCurrent:()=>current,frameCurrent,resetView,setWireframe,destroy(){cancelAnimationFrame(raf);ro.disconnect();renderer.dispose()}};
 }
 function mat(color,roughness=.28,metalness=.28,emissive=0,ei=0){return new THREE.MeshPhysicalMaterial({color,roughness,metalness,clearcoat:.8,clearcoatRoughness:.12,emissive,emissiveIntensity:ei})}
 function addRing(g,r=1.25,t=.075,axis="y",color=BLUE){const o=new THREE.Mesh(new THREE.TorusGeometry(r,t,18,96),mat(color,.16,.35,color,.75));if(axis==="x")o.rotation.y=Math.PI/2;if(axis==="z")o.rotation.x=Math.PI/2;g.add(o);return o}
@@ -45,4 +46,10 @@ export function generateAsset({category,subcategory,asset,scale=1}){const s=Math
 export function exportGLTF(object,binary=true){return new Promise((resolve,reject)=>new GLTFExporter().parse(object,r=>resolve(r),reject,{binary,trs:false,onlyVisible:true}))}
 export function exportPLY(object){return new PLYExporter().parse(object,{binary:true})}
 export function downloadBlob(data,name,type="application/octet-stream"){const blob=data instanceof Blob?data:new Blob([data],{type});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)}
-export function createB3DBridge(meta){return "# GLORIFIED / BEYOND 2126 — Blender B3D bridge\n# Browser export is not a native B3D encoder; install a Blender B3D exporter/add-on.\nimport bpy\nMETA = "+JSON.stringify(meta)+"\nprint('Rebuild asset from META:', META)\nprint('Export with the installed B3D exporter/add-on.')\n"}
+export function createB3DBridge(meta){return "# GLORIFIED / BEYOND 2126 — Blender B3D bridge
+# Browser export is not a native B3D encoder; install a Blender B3D exporter/add-on.
+import bpy
+META = "+JSON.stringify(meta)+"
+print('Rebuild asset from META:', META)
+print('Export with the installed B3D exporter/add-on.')
+"}
